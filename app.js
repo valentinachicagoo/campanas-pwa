@@ -275,7 +275,12 @@ function campaignCard(c) {
 <div class="card clickable" onclick="go('campania-detalle','${c.id}',{view:'campanias'})">
   <div class="card-header">
     <div class="card-title">${esc(c.nombre)}</div>
-    ${badge(c.estado)}
+    <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+      ${badge(c.estado)}
+      <button class="btn-icon" onclick="event.stopPropagation();go('editar-campania','${c.id}',{view:'campanias'})" title="Editar" style="padding:3px;color:var(--text-dim)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
   </div>
   ${c.servicio ? `<div class="card-sub">${esc(c.servicio)}</div>` : '<div style="margin-bottom:10px"></div>'}
   <div class="mini-metrics">
@@ -343,11 +348,11 @@ function renderDetalleCampania(id) {
 
   <!-- INVESTMENT CARD -->
   <div class="card">
-    <div class="card-section-title">Inversión publicitaria</div>
+    <div class="card-section-title">Datos de Meta Ads</div>
     <div class="inv-row">
       <div>
         <div class="inv-amount">${money(c.inversionEjecutada)}</div>
-        <div class="inv-label">ejecutada de ${money(c.presupuestoTotal)} presupuestados</div>
+        <div class="inv-label">importe gastado de ${money(c.presupuestoTotal)} presupuestados</div>
       </div>
       <button class="btn btn-sm btn-outline" id="btnUpdateInv">Actualizar</button>
     </div>
@@ -355,6 +360,7 @@ function renderDetalleCampania(id) {
       <div class="progress-fill" style="width:${presPct}%"></div>
     </div>
     <div class="progress-label">${pct(presPct)} del presupuesto ejecutado</div>
+    ${c.impresiones > 0 ? `<div class="progress-label" style="margin-top:6px">👁 ${Math.round(c.impresiones).toLocaleString('es-CO')} impresiones</div>` : ''}
   </div>
 
   <!-- FUNNEL CARD -->
@@ -496,10 +502,11 @@ function renderFormCampania(id) {
       <div class="form-group">
         <label class="form-label">Objetivo</label>
         <select class="form-select" name="objetivo">
-          <option value="ventas"          ${(v.objetivo||'ventas')==='ventas'         ?'selected':''}>Ventas</option>
-          <option value="leads"           ${v.objetivo==='leads'                      ?'selected':''}>Leads</option>
-          <option value="trafico"         ${v.objetivo==='trafico'                    ?'selected':''}>Tráfico</option>
-          <option value="reconocimiento"  ${v.objetivo==='reconocimiento'             ?'selected':''}>Reconocimiento</option>
+          <option value="interaccion"     ${(v.objetivo||'interaccion')==='interaccion'  ?'selected':''}>Interacción</option>
+          <option value="ventas"          ${v.objetivo==='ventas'                         ?'selected':''}>Ventas</option>
+          <option value="leads"           ${v.objetivo==='leads'                          ?'selected':''}>Leads</option>
+          <option value="trafico"         ${v.objetivo==='trafico'                        ?'selected':''}>Tráfico</option>
+          <option value="reconocimiento"  ${v.objetivo==='reconocimiento'                 ?'selected':''}>Reconocimiento</option>
         </select>
       </div>
       <div class="form-group">
@@ -530,10 +537,19 @@ function renderFormCampania(id) {
           value="${v.presupuestoTotal || ''}" placeholder="500000" min="0" inputmode="numeric" />
       </div>
       <div class="form-group">
-        <label class="form-label">Inversión ejecutada ($)</label>
+        <label class="form-label">Importe gastado Meta ($)</label>
         <input class="form-input" type="number" name="inversionEjecutada"
           value="${v.inversionEjecutada || ''}" placeholder="0" min="0" inputmode="numeric" />
       </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Impresiones (Meta)</label>
+        <input class="form-input" type="number" name="impresiones"
+          value="${v.impresiones || ''}" placeholder="0" min="0" inputmode="numeric" />
+      </div>
+      <div class="form-group"></div>
     </div>
 
     <div class="form-group">
@@ -558,8 +574,9 @@ function bindFormCampania() {
     e.preventDefault()
     const fd = new FormData(e.target)
     const data = Object.fromEntries(fd)
-    data.presupuestoTotal    = parseFloat(data.presupuestoTotal)    || 0
-    data.inversionEjecutada  = parseFloat(data.inversionEjecutada)  || 0
+    data.presupuestoTotal    = parseFloat(data.presupuestoTotal)   || 0
+    data.inversionEjecutada  = parseFloat(data.inversionEjecutada) || 0
+    data.impresiones         = parseFloat(data.impresiones)        || 0
 
     if (id) {
       const idx = C.findIndex(x => x.id === id)
@@ -619,9 +636,19 @@ function renderVentas() {
 </div>`
 }
 
+const DESTINO_LABEL = {
+  hotmart: 'Hotmart', bancolombia_r: 'Bancolombia (R)',
+  bancolombia_vcg: 'Bancolombia (VCG)', bold: 'Bold'
+}
+
 function saleRow(v, backView = 'ventas', backId = null) {
   const camp = C.find(c => c.id === v.campaniaId)
   const b = backId ? `{view:'${backView}',id:'${backId}'}` : `{view:'${backView}'}`
+  const isPendiente = (v.estadoContacto || 'pendiente_contactar') === 'pendiente_contactar'
+  const contactoBadge = isPendiente
+    ? `<span class="badge badge-amber">⏳ Pendiente contactar${v.fechaAcuerdo ? ' · ' + fDate(v.fechaAcuerdo) : ''}</span>`
+    : `<span class="badge badge-green">✓ Contactado</span>`
+  const destino = v.destino ? `<span class="badge badge-gray" style="font-size:10px">${DESTINO_LABEL[v.destino] || v.destino}</span>` : ''
   return `
 <div class="sale-row" onclick="go('editar-venta','${v.id}',${b})">
   <div class="sale-info">
@@ -630,6 +657,7 @@ function saleRow(v, backView = 'ventas', backId = null) {
       ${esc(v.servicio)}${camp ? ` · <span style="color:var(--accent)">${esc(camp.nombre)}</span>` : ''}
       · ${fDate(v.fecha)}
     </div>
+    <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${contactoBadge}${destino}</div>
   </div>
   <div class="sale-right">
     <div class="sale-amount">${money(v.monto)}</div>
@@ -685,11 +713,35 @@ function renderFormVenta(id) {
     </div>
 
     <div class="form-group">
+      <label class="form-label">¿A dónde entró el pago?</label>
+      <select class="form-select" name="destino">
+        <option value=""              ${!val.destino                       ?'selected':''}>Sin especificar</option>
+        <option value="hotmart"       ${val.destino==='hotmart'            ?'selected':''}>Hotmart</option>
+        <option value="bancolombia_r" ${val.destino==='bancolombia_r'      ?'selected':''}>Bancolombia (R)</option>
+        <option value="bancolombia_vcg" ${val.destino==='bancolombia_vcg'  ?'selected':''}>Bancolombia (VCG)</option>
+        <option value="bold"          ${val.destino==='bold'               ?'selected':''}>Bold</option>
+      </select>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">Campaña de origen</label>
       <select class="form-select" name="campaniaId">
         <option value="">Sin campaña asociada</option>
         ${C.map(c => `<option value="${c.id}" ${defaultCampId === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}
       </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Estado de contacto</label>
+      <select class="form-select" name="estadoContacto" id="selectEstadoContacto">
+        <option value="pendiente_contactar" ${(val.estadoContacto||'pendiente_contactar')==='pendiente_contactar'?'selected':''}>Pendiente por contactar</option>
+        <option value="contactado"          ${val.estadoContacto==='contactado'                                  ?'selected':''}>Contactado</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="grupoFechaAcuerdo">
+      <label class="form-label">Fecha del acuerdo / seguimiento</label>
+      <input class="form-input" type="date" name="fechaAcuerdo" value="${val.fechaAcuerdo || ''}" />
     </div>
 
     <div class="form-group">
@@ -709,6 +761,13 @@ function renderFormVenta(id) {
 
 function bindFormVenta() {
   const id = route.id
+
+  // Show/hide fecha de acuerdo based on estado de contacto
+  const sel = document.getElementById('selectEstadoContacto')
+  const grp = document.getElementById('grupoFechaAcuerdo')
+  function toggleFecha() { grp.style.display = sel.value === 'pendiente_contactar' ? 'block' : 'none' }
+  sel.addEventListener('change', toggleFecha)
+  toggleFecha()
 
   document.getElementById('formVenta').addEventListener('submit', e => {
     e.preventDefault()
@@ -754,10 +813,14 @@ function hideModal() {
 
 function showModalInv(c) {
   showModal(`
-    <div class="modal-title">Actualizar inversión</div>
+    <div class="modal-title">Datos de Meta Ads</div>
     <div class="form-group">
-      <label class="form-label">Inversión ejecutada ($)</label>
+      <label class="form-label">Importe gastado ($)</label>
       <input class="form-input" type="number" id="mInv" value="${c.inversionEjecutada || 0}" min="0" inputmode="numeric" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Impresiones</label>
+      <input class="form-input" type="number" id="mImp" value="${c.impresiones || 0}" min="0" inputmode="numeric" />
     </div>
     <div class="form-group">
       <label class="form-label">Presupuesto total ($)</label>
@@ -772,6 +835,7 @@ function showModalInv(c) {
     document.getElementById('mSave').onclick = () => {
       const idx = C.findIndex(x => x.id === c.id)
       C[idx].inversionEjecutada = parseFloat(document.getElementById('mInv').value) || 0
+      C[idx].impresiones        = parseFloat(document.getElementById('mImp').value) || 0
       C[idx].presupuestoTotal   = parseFloat(document.getElementById('mPres').value) || 0
       saveDB(); hideModal(); go('campania-detalle', c.id)
     }

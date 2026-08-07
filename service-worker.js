@@ -1,4 +1,4 @@
-const CACHE = 'cpw-v2'
+const CACHE = 'cpw-v3'
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json']
 
 self.addEventListener('install', e => {

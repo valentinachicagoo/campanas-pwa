@@ -7,8 +7,8 @@
 const KEY_C = 'cpw_c'
 const KEY_V = 'cpw_v'
 
-let C = []  // campaigns
-let V = []  // ventas (sales)
+let C = []
+let V = []
 
 function loadDB() {
   try {
@@ -34,33 +34,51 @@ function getVentasByCampania(campaniaId) {
   return V.filter(v => v.campaniaId === campaniaId)
 }
 
-function calcMetrics(c) {
-  const vs = getVentasByCampania(c.id)
-  const ing = vs.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
-  const nv = vs.length
-  const inv = c.inversionEjecutada || 0
-  const con = c.contactos || 0
-  const age = c.agendas || 0
+function getLogsTotal(c) {
+  const logs = c.logs || []
+  if (logs.length === 0) {
+    return {
+      contactos: c.contactos || 0,
+      agendas:   c.agendas   || 0,
+      asistencia: c.asistencia || 0,
+      inv:       c.inversionEjecutada || 0,
+      imp:       c.impresiones || 0,
+    }
+  }
   return {
-    ing,
-    nv,
+    contactos:  logs.reduce((s, l) => s + (l.contactos  || 0), 0),
+    agendas:    logs.reduce((s, l) => s + (l.agendas    || 0), 0),
+    asistencia: logs.reduce((s, l) => s + (l.asistencia || 0), 0),
+    inv:        logs.reduce((s, l) => s + (l.importeGastado || 0), 0),
+    imp:        logs.reduce((s, l) => s + (l.impresiones    || 0), 0),
+  }
+}
+
+function calcMetrics(c) {
+  const t   = getLogsTotal(c)
+  const vs  = getVentasByCampania(c.id)
+  const ing = vs.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
+  const nv  = vs.length
+  const { contactos: con, agendas: age, asistencia: asi, inv } = t
+  return {
+    ing, nv, t,
     roas: inv > 0 && ing > 0 ? ing / inv : 0,
     cpl:  con > 0 && inv > 0 ? inv / con : 0,
     cpa:  age > 0 && inv > 0 ? inv / age : 0,
+    cpas: asi > 0 && inv > 0 ? inv / asi : 0,
     cpv:  nv  > 0 && inv > 0 ? inv / nv  : 0,
     t1: con > 0 ? (age / con) * 100 : 0,
-    t2: age > 0 ? (nv  / age) * 100 : 0,
-    t3: con > 0 ? (nv  / con) * 100 : 0,
+    t2: age > 0 ? (asi / age) * 100 : 0,
+    t3: asi > 0 ? (nv  / asi) * 100 : 0,
+    tTotal: con > 0 ? (nv / con) * 100 : 0,
   }
 }
 
 function calcGlobals() {
-  const inv = C.reduce((s, c) => s + (c.inversionEjecutada || 0), 0)
-  const ing = V.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
+  const inv  = C.reduce((s, c) => s + (getLogsTotal(c).inv || 0), 0)
+  const ing  = V.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
   const active = C.filter(c => c.estado === 'activa').length
-  const mes = new Date().toISOString().slice(0, 7)
-  const ventasMes = V.filter(v => (v.fecha || '').startsWith(mes)).length
-  return { inv, ing, roas: inv > 0 && ing > 0 ? ing / inv : 0, active, ventasMes }
+  return { inv, ing, roas: inv > 0 && ing > 0 ? ing / inv : 0, active }
 }
 
 // ══════════════════════════════════════════════
@@ -72,9 +90,7 @@ function money(n) {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
-function pct(n) {
-  return (n || 0).toFixed(1) + '%'
-}
+function pct(n) { return (n || 0).toFixed(1) + '%' }
 
 function fDate(s) {
   if (!s) return '—'
@@ -96,10 +112,18 @@ function badge(estado) {
 
 function esc(s) {
   return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+const DESTINO_LABEL = {
+  hotmart: 'Hotmart', bancolombia_r: 'Bancolombia (R)',
+  bancolombia_vcg: 'Bancolombia (VCG)', bold: 'Bold'
+}
+
+const CANAL_LABEL = {
+  instagram: 'Instagram DM', whatsapp: 'WhatsApp',
+  llamada: 'Llamada', referido: 'Referido'
 }
 
 // ══════════════════════════════════════════════
@@ -125,12 +149,10 @@ function render() {
   const title   = document.getElementById('pageTitle')
   const fab     = document.getElementById('fab')
 
-  // Nav active state
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === route.view)
   })
 
-  // Defaults
   backBtn.classList.add('hidden')
   fab.classList.add('hidden')
   fab.onclick = null
@@ -163,10 +185,7 @@ function render() {
     case 'editar-campania':
       title.textContent = route.view === 'nueva-campania' ? 'Nueva campaña' : 'Editar campaña'
       backBtn.classList.remove('hidden')
-      backBtn.onclick = () => {
-        const b = route.back
-        go(b?.view || 'campanias', b?.id || null)
-      }
+      backBtn.onclick = () => { const b = route.back; go(b?.view || 'campanias', b?.id || null) }
       main.innerHTML = renderFormCampania(route.id)
       bindFormCampania()
       break
@@ -182,10 +201,7 @@ function render() {
     case 'editar-venta':
       title.textContent = route.view === 'nueva-venta' ? 'Nueva venta' : 'Editar venta'
       backBtn.classList.remove('hidden')
-      backBtn.onclick = () => {
-        const b = route.back
-        go(b?.view || 'ventas', b?.id || null)
-      }
+      backBtn.onclick = () => { const b = route.back; go(b?.view || 'ventas', b?.id || null) }
       main.innerHTML = renderFormVenta(route.id)
       bindFormVenta()
       break
@@ -198,14 +214,14 @@ function render() {
 
 function renderDashboard() {
   const g = calcGlobals()
-  const activas = C.filter(c => c.estado === 'activa')
+  const activas  = C.filter(c => c.estado === 'activa')
   const recientes = [...V].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')).slice(0, 5)
 
   return `
 <div class="page">
   <div class="summary-grid">
     <div class="summary-card">
-      <div class="summary-label">Inversión ejecutada</div>
+      <div class="summary-label">Importe gastado Meta</div>
       <div class="summary-value">${money(g.inv)}</div>
     </div>
     <div class="summary-card summary-card--green">
@@ -236,7 +252,7 @@ function renderDashboard() {
     <div class="empty-state">
       <div class="empty-icon">📢</div>
       <div class="empty-title">¡Empieza aquí!</div>
-      <div class="empty-desc">Ve a "Campañas" y crea tu primera campaña publicitaria para empezar a medir tu retorno.</div>
+      <div class="empty-desc">Ve a "Campañas" y crea tu primera campaña publicitaria.</div>
     </div>
   ` : ''}
 </div>`
@@ -247,13 +263,11 @@ function renderDashboard() {
 // ══════════════════════════════════════════════
 
 function renderCampanias() {
-  if (C.length === 0) {
-    return `<div class="page"><div class="empty-state">
-      <div class="empty-icon">📢</div>
-      <div class="empty-title">Sin campañas</div>
-      <div class="empty-desc">Toca + para crear tu primera campaña</div>
-    </div></div>`
-  }
+  if (C.length === 0) return `<div class="page"><div class="empty-state">
+    <div class="empty-icon">📢</div>
+    <div class="empty-title">Sin campañas</div>
+    <div class="empty-desc">Toca + para crear tu primera campaña</div>
+  </div></div>`
 
   const groups = [
     { label: 'Activas',     items: C.filter(c => c.estado === 'activa')     },
@@ -271,6 +285,7 @@ function renderCampanias() {
 
 function campaignCard(c) {
   const m = calcMetrics(c)
+  const { contactos: con, agendas: age, asistencia: asi } = m.t
   return `
 <div class="card clickable" onclick="go('campania-detalle','${c.id}',{view:'campanias'})">
   <div class="card-header">
@@ -286,7 +301,7 @@ function campaignCard(c) {
   <div class="mini-metrics">
     <div class="mini-metric">
       <span class="mini-label">Inversión</span>
-      <span class="mini-value">${money(c.inversionEjecutada)}</span>
+      <span class="mini-value">${money(m.t.inv)}</span>
     </div>
     <div class="mini-metric">
       <span class="mini-label">Ingresos</span>
@@ -302,11 +317,10 @@ function campaignCard(c) {
     </div>
   </div>
   <div class="funnel-mini">
-    <span>💬 ${c.contactos || 0}</span>
-    <span>→</span>
-    <span>📅 ${c.agendas || 0}</span>
-    <span>→</span>
-    <span>💳 ${m.nv}</span>
+    <span>💬${con}</span><span>→</span>
+    <span>📅${age}</span><span>→</span>
+    <span>✅${asi}</span><span>→</span>
+    <span>💳${m.nv}</span>
   </div>
 </div>`
 }
@@ -319,13 +333,12 @@ function renderDetalleCampania(id) {
   const c = C.find(x => x.id === id)
   if (!c) return '<div class="page"><p class="dimmed" style="padding:40px 0;text-align:center">Campaña no encontrada</p></div>'
 
-  const m = calcMetrics(c)
-  const vs = getVentasByCampania(id)
+  const m   = calcMetrics(c)
+  const vs  = getVentasByCampania(id)
+  const { contactos: con, agendas: age, asistencia: asi, inv, imp } = m.t
   const presPct = c.presupuestoTotal > 0
-    ? Math.min((c.inversionEjecutada / c.presupuestoTotal) * 100, 100) : 0
-  const con = c.contactos || 0
-  const age = c.agendas || 0
-  const nv = m.nv
+    ? Math.min((inv / c.presupuestoTotal) * 100, 100) : 0
+  const logs = [...(c.logs || [])].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
 
   return `
 <div class="page">
@@ -334,9 +347,7 @@ function renderDetalleCampania(id) {
     <div style="flex:1;min-width:0">
       <div class="detail-title">${esc(c.nombre)}</div>
       ${c.servicio ? `<div class="detail-sub">${esc(c.servicio)}</div>` : ''}
-      <div class="detail-dates">
-        ${fDate(c.fechaInicio)}${c.fechaFin ? ` → ${fDate(c.fechaFin)}` : ' · en curso'}
-      </div>
+      <div class="detail-dates">${fDate(c.fechaInicio)}${c.fechaFin ? ` → ${fDate(c.fechaFin)}` : ' · en curso'}</div>
     </div>
     <div class="detail-actions">
       ${badge(c.estado)}
@@ -346,24 +357,20 @@ function renderDetalleCampania(id) {
     </div>
   </div>
 
-  <!-- INVESTMENT CARD -->
+  <!-- META DATA -->
   <div class="card">
-    <div class="card-section-title">Datos de Meta Ads</div>
+    <div class="card-section-title">Datos Meta Ads</div>
     <div class="inv-row">
       <div>
-        <div class="inv-amount">${money(c.inversionEjecutada)}</div>
+        <div class="inv-amount">${money(inv)}</div>
         <div class="inv-label">importe gastado de ${money(c.presupuestoTotal)} presupuestados</div>
       </div>
-      <button class="btn btn-sm btn-outline" id="btnUpdateInv">Actualizar</button>
     </div>
-    <div class="progress-bar">
-      <div class="progress-fill" style="width:${presPct}%"></div>
-    </div>
-    <div class="progress-label">${pct(presPct)} del presupuesto ejecutado</div>
-    ${c.impresiones > 0 ? `<div class="progress-label" style="margin-top:6px">👁 ${Math.round(c.impresiones).toLocaleString('es-CO')} impresiones</div>` : ''}
+    <div class="progress-bar"><div class="progress-fill" style="width:${presPct}%"></div></div>
+    <div class="progress-label">${pct(presPct)} del presupuesto · ${imp > 0 ? `👁 ${Math.round(imp).toLocaleString('es-CO')} impresiones` : 'sin impresiones registradas'}</div>
   </div>
 
-  <!-- FUNNEL CARD -->
+  <!-- FUNNEL -->
   <div class="card">
     <div class="card-section-title">Embudo de conversión</div>
     <div class="funnel">
@@ -374,69 +381,92 @@ function renderDetalleCampania(id) {
           <span class="funnel-label">Hablaron</span>
           <span class="funnel-count">${con}</span>
         </div>
-        <div class="funnel-bar">
-          <div class="funnel-fill funnel-fill--blue" style="width:100%"></div>
-        </div>
+        <div class="funnel-bar"><div class="funnel-fill funnel-fill--blue" style="width:100%"></div></div>
         <div class="funnel-pct">100% — base de contactos</div>
       </div>
 
-      <div class="funnel-arrow">↓ <span class="conv-badge">${pct(m.t1)} pasó a agenda</span></div>
+      <div class="funnel-arrow">↓ <span class="conv-badge">${pct(m.t1)} agendó</span></div>
 
       <div class="funnel-step">
         <div class="funnel-step-header">
           <span class="funnel-icon">📅</span>
-          <span class="funnel-label">Agendaron</span>
+          <span class="funnel-label">Agendamiento</span>
           <span class="funnel-count">${age}</span>
         </div>
-        <div class="funnel-bar">
-          <div class="funnel-fill funnel-fill--purple" style="width:${con > 0 ? (age/con)*100 : 0}%"></div>
-        </div>
+        <div class="funnel-bar"><div class="funnel-fill funnel-fill--purple" style="width:${con > 0 ? (age/con)*100 : 0}%"></div></div>
         <div class="funnel-pct">${pct(con > 0 ? (age/con)*100 : 0)} de los que hablaron</div>
       </div>
 
-      <div class="funnel-arrow">↓ <span class="conv-badge">${pct(m.t2)} cerró</span></div>
+      <div class="funnel-arrow">↓ <span class="conv-badge">${pct(m.t2)} asistió</span></div>
+
+      <div class="funnel-step">
+        <div class="funnel-step-header">
+          <span class="funnel-icon">✅</span>
+          <span class="funnel-label">Asistencia</span>
+          <span class="funnel-count">${asi}</span>
+        </div>
+        <div class="funnel-bar"><div class="funnel-fill funnel-fill--teal" style="width:${con > 0 ? (asi/con)*100 : 0}%"></div></div>
+        <div class="funnel-pct">${pct(age > 0 ? (asi/age)*100 : 0)} de los que agendaron</div>
+      </div>
+
+      <div class="funnel-arrow">↓ <span class="conv-badge">${pct(m.t3)} compró</span></div>
 
       <div class="funnel-step">
         <div class="funnel-step-header">
           <span class="funnel-icon">💳</span>
           <span class="funnel-label">Compraron</span>
-          <span class="funnel-count">${nv}</span>
+          <span class="funnel-count">${m.nv}</span>
         </div>
-        <div class="funnel-bar">
-          <div class="funnel-fill funnel-fill--green" style="width:${con > 0 ? (nv/con)*100 : 0}%"></div>
-        </div>
-        <div class="funnel-pct">${pct(m.t3)} del total · ${pct(m.t2)} de las agendas</div>
+        <div class="funnel-bar"><div class="funnel-fill funnel-fill--green" style="width:${con > 0 ? (m.nv/con)*100 : 0}%"></div></div>
+        <div class="funnel-pct">${pct(m.tTotal)} del total · ${pct(m.t3)} de los que asistieron</div>
       </div>
 
     </div>
-    <button class="btn btn-outline btn-full mt-12" id="btnUpdateFunnel">Actualizar embudo</button>
   </div>
 
   <!-- KEY METRICS -->
   <div class="metrics-grid">
-    <div class="metric-card ${m.roas >= 2 ? 'metric-card--green' : m.roas >= 1 && m.roas < 2 ? 'metric-card--amber' : ''}">
+    <div class="metric-card ${m.roas >= 2 ? 'metric-card--green' : m.roas >= 1 ? 'metric-card--amber' : ''}">
       <div class="metric-label">ROAS</div>
       <div class="metric-value">${m.roas > 0 ? m.roas.toFixed(2) + 'x' : '—'}</div>
-      <div class="metric-sub">retorno sobre inversión</div>
+      <div class="metric-sub">retorno inversión</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Costo / Lead</div>
       <div class="metric-value">${m.cpl > 0 ? money(m.cpl) : '—'}</div>
-      <div class="metric-sub">por persona que habló</div>
+      <div class="metric-sub">por habló</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Costo / Agenda</div>
       <div class="metric-value">${m.cpa > 0 ? money(m.cpa) : '—'}</div>
-      <div class="metric-sub">por cita agendada</div>
+      <div class="metric-sub">por agendamiento</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Costo / Asistencia</div>
+      <div class="metric-value">${m.cpas > 0 ? money(m.cpas) : '—'}</div>
+      <div class="metric-sub">por asistió</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Costo / Venta</div>
       <div class="metric-value">${m.cpv > 0 ? money(m.cpv) : '—'}</div>
-      <div class="metric-sub">por cierre realizado</div>
+      <div class="metric-sub">por cierre</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Ingresos</div>
+      <div class="metric-value ${m.ing > 0 ? 'green' : ''}">${money(m.ing)}</div>
+      <div class="metric-sub">pagados</div>
     </div>
   </div>
 
-  <!-- ASSOCIATED SALES -->
+  <!-- DAILY LOGS -->
+  <div class="section-title" style="justify-content:space-between">
+    <span>Registro diario <span class="section-count">${logs.length}</span></span>
+    <button class="btn btn-sm btn-outline" id="btnAddLog">+ Agregar día</button>
+  </div>
+
+  ${logs.length > 0 ? logs.map(l => logRow(l, id)).join('') : '<div class="empty-inline">Sin registros aún — toca "+ Agregar día"</div>'}
+
+  <!-- VENTAS -->
   <div class="section-title">
     Ventas de esta campaña <span class="section-count">${vs.length}</span>
   </div>
@@ -458,13 +488,34 @@ function renderDetalleCampania(id) {
 </div>`
 }
 
+function logRow(l, campaniaId) {
+  return `
+<div class="log-row">
+  <div class="log-date">${fDate(l.fecha)}</div>
+  <div class="log-data">
+    <span>💬 ${l.contactos || 0}</span>
+    <span>📅 ${l.agendas || 0}</span>
+    <span>✅ ${l.asistencia || 0}</span>
+    ${l.importeGastado ? `<span class="log-money">${money(l.importeGastado)}</span>` : ''}
+    ${l.impresiones ? `<span>👁 ${Math.round(l.impresiones).toLocaleString('es-CO')}</span>` : ''}
+  </div>
+  <div class="log-actions">
+    <button class="btn-icon" onclick="showModalLog('${campaniaId}','${l.id}')" style="padding:3px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    </button>
+    <button class="btn-icon" onclick="deleteLog('${campaniaId}','${l.id}')" style="padding:3px;color:var(--red)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+    </button>
+  </div>
+</div>`
+}
+
 function bindDetalle() {
   const id = route.id
   const c  = C.find(x => x.id === id)
   if (!c) return
 
-  document.getElementById('btnUpdateInv')?.addEventListener('click', () => showModalInv(c))
-  document.getElementById('btnUpdateFunnel')?.addEventListener('click', () => showModalFunnel(c))
+  document.getElementById('btnAddLog')?.addEventListener('click', () => showModalLog(id))
   document.getElementById('btnDeleteCampania')?.addEventListener('click', () => {
     if (confirm(`¿Eliminar la campaña "${c.nombre}"? Esta acción no se puede deshacer.`)) {
       C = C.filter(x => x.id !== id)
@@ -502,19 +553,19 @@ function renderFormCampania(id) {
       <div class="form-group">
         <label class="form-label">Objetivo</label>
         <select class="form-select" name="objetivo">
-          <option value="interaccion"     ${(v.objetivo||'interaccion')==='interaccion'  ?'selected':''}>Interacción</option>
-          <option value="ventas"          ${v.objetivo==='ventas'                         ?'selected':''}>Ventas</option>
-          <option value="leads"           ${v.objetivo==='leads'                          ?'selected':''}>Leads</option>
-          <option value="trafico"         ${v.objetivo==='trafico'                        ?'selected':''}>Tráfico</option>
-          <option value="reconocimiento"  ${v.objetivo==='reconocimiento'                 ?'selected':''}>Reconocimiento</option>
+          <option value="interaccion"    ${(v.objetivo||'interaccion')==='interaccion'   ?'selected':''}>Interacción</option>
+          <option value="ventas"         ${v.objetivo==='ventas'                          ?'selected':''}>Ventas</option>
+          <option value="leads"          ${v.objetivo==='leads'                           ?'selected':''}>Leads</option>
+          <option value="trafico"        ${v.objetivo==='trafico'                         ?'selected':''}>Tráfico</option>
+          <option value="reconocimiento" ${v.objetivo==='reconocimiento'                  ?'selected':''}>Reconocimiento</option>
         </select>
       </div>
       <div class="form-group">
         <label class="form-label">Estado</label>
         <select class="form-select" name="estado">
-          <option value="activa"      ${(v.estado||'activa')==='activa'     ?'selected':''}>Activa</option>
-          <option value="pausada"     ${v.estado==='pausada'                ?'selected':''}>Pausada</option>
-          <option value="finalizada"  ${v.estado==='finalizada'             ?'selected':''}>Finalizada</option>
+          <option value="activa"     ${(v.estado||'activa')==='activa'    ?'selected':''}>Activa</option>
+          <option value="pausada"    ${v.estado==='pausada'               ?'selected':''}>Pausada</option>
+          <option value="finalizada" ${v.estado==='finalizada'            ?'selected':''}>Finalizada</option>
         </select>
       </div>
     </div>
@@ -530,26 +581,10 @@ function renderFormCampania(id) {
       </div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Presupuesto total ($)</label>
-        <input class="form-input" type="number" name="presupuestoTotal"
-          value="${v.presupuestoTotal || ''}" placeholder="500000" min="0" inputmode="numeric" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">Importe gastado Meta ($)</label>
-        <input class="form-input" type="number" name="inversionEjecutada"
-          value="${v.inversionEjecutada || ''}" placeholder="0" min="0" inputmode="numeric" />
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Impresiones (Meta)</label>
-        <input class="form-input" type="number" name="impresiones"
-          value="${v.impresiones || ''}" placeholder="0" min="0" inputmode="numeric" />
-      </div>
-      <div class="form-group"></div>
+    <div class="form-group">
+      <label class="form-label">Presupuesto total ($)</label>
+      <input class="form-input" type="number" name="presupuestoTotal"
+        value="${v.presupuestoTotal || ''}" placeholder="500000" min="0" inputmode="numeric" />
     </div>
 
     <div class="form-group">
@@ -572,21 +607,15 @@ function bindFormCampania() {
 
   document.getElementById('formCampania').addEventListener('submit', e => {
     e.preventDefault()
-    const fd = new FormData(e.target)
+    const fd   = new FormData(e.target)
     const data = Object.fromEntries(fd)
-    data.presupuestoTotal    = parseFloat(data.presupuestoTotal)   || 0
-    data.inversionEjecutada  = parseFloat(data.inversionEjecutada) || 0
-    data.impresiones         = parseFloat(data.impresiones)        || 0
+    data.presupuestoTotal = parseFloat(data.presupuestoTotal) || 0
 
     if (id) {
       const idx = C.findIndex(x => x.id === id)
       C[idx] = { ...C[idx], ...data }
     } else {
-      C.unshift({
-        id: uid(), ...data,
-        contactos: 0, agendas: 0,
-        createdAt: new Date().toISOString()
-      })
+      C.unshift({ id: uid(), ...data, logs: [], createdAt: new Date().toISOString() })
     }
     saveDB()
     const b = route.back
@@ -608,17 +637,15 @@ function bindFormCampania() {
 // ══════════════════════════════════════════════
 
 function renderVentas() {
-  if (V.length === 0) {
-    return `<div class="page"><div class="empty-state">
-      <div class="empty-icon">💳</div>
-      <div class="empty-title">Sin ventas</div>
-      <div class="empty-desc">Toca + para registrar tu primera venta</div>
-    </div></div>`
-  }
+  if (V.length === 0) return `<div class="page"><div class="empty-state">
+    <div class="empty-icon">💳</div>
+    <div class="empty-title">Sin ventas</div>
+    <div class="empty-desc">Toca + para registrar tu primera venta</div>
+  </div></div>`
 
-  const cobrado  = V.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
+  const cobrado   = V.filter(v => v.estado === 'pagado').reduce((s, v) => s + (v.monto || 0), 0)
   const pendiente = V.filter(v => v.estado === 'pendiente').reduce((s, v) => s + (v.monto || 0), 0)
-  const sorted = [...V].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+  const sorted    = [...V].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
 
   return `
 <div class="page">
@@ -636,19 +663,15 @@ function renderVentas() {
 </div>`
 }
 
-const DESTINO_LABEL = {
-  hotmart: 'Hotmart', bancolombia_r: 'Bancolombia (R)',
-  bancolombia_vcg: 'Bancolombia (VCG)', bold: 'Bold'
-}
-
 function saleRow(v, backView = 'ventas', backId = null) {
   const camp = C.find(c => c.id === v.campaniaId)
-  const b = backId ? `{view:'${backView}',id:'${backId}'}` : `{view:'${backView}'}`
+  const b    = backId ? `{view:'${backView}',id:'${backId}'}` : `{view:'${backView}'}`
   const isPendiente = (v.estadoContacto || 'pendiente_contactar') === 'pendiente_contactar'
   const contactoBadge = isPendiente
     ? `<span class="badge badge-amber">⏳ Pendiente contactar${v.fechaAcuerdo ? ' · ' + fDate(v.fechaAcuerdo) : ''}</span>`
     : `<span class="badge badge-green">✓ Contactado</span>`
   const destino = v.destino ? `<span class="badge badge-gray" style="font-size:10px">${DESTINO_LABEL[v.destino] || v.destino}</span>` : ''
+  const canal   = v.canalVenta ? `<span class="badge badge-gray" style="font-size:10px">${CANAL_LABEL[v.canalVenta] || v.canalVenta}</span>` : ''
   return `
 <div class="sale-row" onclick="go('editar-venta','${v.id}',${b})">
   <div class="sale-info">
@@ -657,7 +680,7 @@ function saleRow(v, backView = 'ventas', backId = null) {
       ${esc(v.servicio)}${camp ? ` · <span style="color:var(--accent)">${esc(camp.nombre)}</span>` : ''}
       · ${fDate(v.fecha)}
     </div>
-    <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${contactoBadge}${destino}</div>
+    <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${contactoBadge}${destino}${canal}</div>
   </div>
   <div class="sale-right">
     <div class="sale-amount">${money(v.monto)}</div>
@@ -671,7 +694,7 @@ function saleRow(v, backView = 'ventas', backId = null) {
 // ══════════════════════════════════════════════
 
 function renderFormVenta(id) {
-  const v = id ? V.find(x => x.id === id) : null
+  const v   = id ? V.find(x => x.id === id) : null
   const val = v || {}
   const defaultCampId = route.back?.campaniaId || val.campaniaId || ''
   const today = new Date().toISOString().slice(0, 10)
@@ -686,10 +709,10 @@ function renderFormVenta(id) {
         <input class="form-input" type="date" name="fecha" value="${val.fecha || today}" required />
       </div>
       <div class="form-group">
-        <label class="form-label">Estado</label>
+        <label class="form-label">Estado pago</label>
         <select class="form-select" name="estado">
-          <option value="pagado"   ${(val.estado||'pagado')==='pagado'  ?'selected':''}>Pagado</option>
-          <option value="pendiente" ${val.estado==='pendiente'          ?'selected':''}>Pendiente</option>
+          <option value="pagado"    ${(val.estado||'pagado')==='pagado'  ?'selected':''}>Pagado</option>
+          <option value="pendiente" ${val.estado==='pendiente'           ?'selected':''}>Pendiente</option>
         </select>
       </div>
     </div>
@@ -703,7 +726,7 @@ function renderFormVenta(id) {
     <div class="form-group">
       <label class="form-label">Servicio vendido *</label>
       <input class="form-input" type="text" name="servicio"
-        value="${esc(val.servicio)}" placeholder="Ej: Mentoría 1:1, Programa Posicionamiento..." required />
+        value="${esc(val.servicio)}" placeholder="Ej: Mentoría 1:1..." required />
     </div>
 
     <div class="form-group">
@@ -713,13 +736,24 @@ function renderFormVenta(id) {
     </div>
 
     <div class="form-group">
+      <label class="form-label">¿Por dónde se dio la venta?</label>
+      <select class="form-select" name="canalVenta">
+        <option value=""           ${!val.canalVenta                     ?'selected':''}>Sin especificar</option>
+        <option value="instagram"  ${val.canalVenta==='instagram'         ?'selected':''}>Instagram DM</option>
+        <option value="whatsapp"   ${val.canalVenta==='whatsapp'          ?'selected':''}>WhatsApp</option>
+        <option value="llamada"    ${val.canalVenta==='llamada'           ?'selected':''}>Llamada</option>
+        <option value="referido"   ${val.canalVenta==='referido'          ?'selected':''}>Referido</option>
+      </select>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">¿A dónde entró el pago?</label>
       <select class="form-select" name="destino">
-        <option value=""              ${!val.destino                       ?'selected':''}>Sin especificar</option>
-        <option value="hotmart"       ${val.destino==='hotmart'            ?'selected':''}>Hotmart</option>
-        <option value="bancolombia_r" ${val.destino==='bancolombia_r'      ?'selected':''}>Bancolombia (R)</option>
-        <option value="bancolombia_vcg" ${val.destino==='bancolombia_vcg'  ?'selected':''}>Bancolombia (VCG)</option>
-        <option value="bold"          ${val.destino==='bold'               ?'selected':''}>Bold</option>
+        <option value=""               ${!val.destino                       ?'selected':''}>Sin especificar</option>
+        <option value="hotmart"        ${val.destino==='hotmart'             ?'selected':''}>Hotmart</option>
+        <option value="bancolombia_r"  ${val.destino==='bancolombia_r'       ?'selected':''}>Bancolombia (R)</option>
+        <option value="bancolombia_vcg"${val.destino==='bancolombia_vcg'     ?'selected':''}>Bancolombia (VCG)</option>
+        <option value="bold"           ${val.destino==='bold'                ?'selected':''}>Bold</option>
       </select>
     </div>
 
@@ -747,7 +781,7 @@ function renderFormVenta(id) {
     <div class="form-group">
       <label class="form-label">Notas</label>
       <textarea class="form-input form-textarea" name="notas"
-        placeholder="Observaciones sobre la venta...">${esc(val.notas)}</textarea>
+        placeholder="Observaciones...">${esc(val.notas)}</textarea>
     </div>
 
     <div class="form-actions">
@@ -760,9 +794,7 @@ function renderFormVenta(id) {
 }
 
 function bindFormVenta() {
-  const id = route.id
-
-  // Show/hide fecha de acuerdo based on estado de contacto
+  const id  = route.id
   const sel = document.getElementById('selectEstadoContacto')
   const grp = document.getElementById('grupoFechaAcuerdo')
   function toggleFecha() { grp.style.display = sel.value === 'pendiente_contactar' ? 'block' : 'none' }
@@ -771,7 +803,7 @@ function bindFormVenta() {
 
   document.getElementById('formVenta').addEventListener('submit', e => {
     e.preventDefault()
-    const fd = new FormData(e.target)
+    const fd   = new FormData(e.target)
     const data = Object.fromEntries(fd)
     data.monto = parseFloat(data.monto) || 0
 
@@ -797,7 +829,88 @@ function bindFormVenta() {
 }
 
 // ══════════════════════════════════════════════
-// MODALS
+// MODAL: DAILY LOG
+// ══════════════════════════════════════════════
+
+function showModalLog(campaniaId, logId = null) {
+  const c   = C.find(x => x.id === campaniaId)
+  if (!c) return
+  const log = logId ? (c.logs || []).find(l => l.id === logId) : null
+  const val = log || {}
+  const today = new Date().toISOString().slice(0, 10)
+
+  showModal(`
+    <div class="modal-title">${logId ? 'Editar registro' : 'Agregar registro del día'}</div>
+    <div class="form-group">
+      <label class="form-label">Fecha</label>
+      <input class="form-input" type="date" id="lFecha" value="${val.fecha || today}" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">💬 Hablaron</label>
+        <input class="form-input" type="number" id="lCon" value="${val.contactos || 0}" min="0" inputmode="numeric" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">📅 Agendamiento</label>
+        <input class="form-input" type="number" id="lAge" value="${val.agendas || 0}" min="0" inputmode="numeric" />
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">✅ Asistencia</label>
+        <input class="form-input" type="number" id="lAsi" value="${val.asistencia || 0}" min="0" inputmode="numeric" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">💲 Importe gastado ($)</label>
+        <input class="form-input" type="number" id="lInv" value="${val.importeGastado || 0}" min="0" inputmode="numeric" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">👁 Impresiones</label>
+      <input class="form-input" type="number" id="lImp" value="${val.impresiones || 0}" min="0" inputmode="numeric" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="mCancel">Cancelar</button>
+      <button class="btn btn-primary" id="mSave">Guardar</button>
+    </div>
+  `, () => {
+    document.getElementById('mCancel').onclick = hideModal
+    document.getElementById('mSave').onclick = () => {
+      const entry = {
+        id:             logId || uid(),
+        fecha:          document.getElementById('lFecha').value,
+        contactos:      parseInt(document.getElementById('lCon').value)  || 0,
+        agendas:        parseInt(document.getElementById('lAge').value)  || 0,
+        asistencia:     parseInt(document.getElementById('lAsi').value)  || 0,
+        importeGastado: parseFloat(document.getElementById('lInv').value) || 0,
+        impresiones:    parseFloat(document.getElementById('lImp').value) || 0,
+      }
+      const idx = C.findIndex(x => x.id === campaniaId)
+      if (!C[idx].logs) C[idx].logs = []
+      if (logId) {
+        const li = C[idx].logs.findIndex(l => l.id === logId)
+        C[idx].logs[li] = entry
+      } else {
+        C[idx].logs.push(entry)
+      }
+      saveDB()
+      hideModal()
+      go('campania-detalle', campaniaId)
+    }
+    document.getElementById('lCon').focus()
+  })
+}
+
+function deleteLog(campaniaId, logId) {
+  if (!confirm('¿Eliminar este registro?')) return
+  const idx = C.findIndex(x => x.id === campaniaId)
+  C[idx].logs = (C[idx].logs || []).filter(l => l.id !== logId)
+  saveDB()
+  go('campania-detalle', campaniaId)
+}
+
+// ══════════════════════════════════════════════
+// MODALS BASE
 // ══════════════════════════════════════════════
 
 function showModal(html, onBind) {
@@ -809,65 +922,6 @@ function showModal(html, onBind) {
 
 function hideModal() {
   document.getElementById('modalOverlay').classList.add('hidden')
-}
-
-function showModalInv(c) {
-  showModal(`
-    <div class="modal-title">Datos de Meta Ads</div>
-    <div class="form-group">
-      <label class="form-label">Importe gastado ($)</label>
-      <input class="form-input" type="number" id="mInv" value="${c.inversionEjecutada || 0}" min="0" inputmode="numeric" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">Impresiones</label>
-      <input class="form-input" type="number" id="mImp" value="${c.impresiones || 0}" min="0" inputmode="numeric" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">Presupuesto total ($)</label>
-      <input class="form-input" type="number" id="mPres" value="${c.presupuestoTotal || 0}" min="0" inputmode="numeric" />
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" id="mCancel">Cancelar</button>
-      <button class="btn btn-primary" id="mSave">Guardar</button>
-    </div>
-  `, () => {
-    document.getElementById('mCancel').onclick = hideModal
-    document.getElementById('mSave').onclick = () => {
-      const idx = C.findIndex(x => x.id === c.id)
-      C[idx].inversionEjecutada = parseFloat(document.getElementById('mInv').value) || 0
-      C[idx].impresiones        = parseFloat(document.getElementById('mImp').value) || 0
-      C[idx].presupuestoTotal   = parseFloat(document.getElementById('mPres').value) || 0
-      saveDB(); hideModal(); go('campania-detalle', c.id)
-    }
-    document.getElementById('mInv').focus()
-  })
-}
-
-function showModalFunnel(c) {
-  showModal(`
-    <div class="modal-title">Actualizar embudo</div>
-    <div class="form-group">
-      <label class="form-label">💬 Personas que hablaron</label>
-      <input class="form-input" type="number" id="mCon" value="${c.contactos || 0}" min="0" inputmode="numeric" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">📅 Personas que agendaron</label>
-      <input class="form-input" type="number" id="mAge" value="${c.agendas || 0}" min="0" inputmode="numeric" />
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" id="mCancel">Cancelar</button>
-      <button class="btn btn-primary" id="mSave">Guardar</button>
-    </div>
-  `, () => {
-    document.getElementById('mCancel').onclick = hideModal
-    document.getElementById('mSave').onclick = () => {
-      const idx = C.findIndex(x => x.id === c.id)
-      C[idx].contactos = parseInt(document.getElementById('mCon').value) || 0
-      C[idx].agendas   = parseInt(document.getElementById('mAge').value) || 0
-      saveDB(); hideModal(); go('campania-detalle', c.id)
-    }
-    document.getElementById('mCon').focus()
-  })
 }
 
 // ══════════════════════════════════════════════

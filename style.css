@@ -416,6 +416,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .funnel-fill--blue   { background: linear-gradient(90deg, #2563eb, #3b82f6); }
 .funnel-fill--purple { background: linear-gradient(90deg, #6d28d9, var(--accent)); }
+.funnel-fill--teal   { background: linear-gradient(90deg, #0d9488, #14b8a6); }
 .funnel-fill--green  { background: linear-gradient(90deg, #16a34a, var(--green)); }
 
 .funnel-pct { font-size: 11px; color: var(--text-dim); }
@@ -581,6 +582,46 @@ input[type="number"] { -moz-appearance: textfield; }
   border-radius: 13px;
   margin-bottom: 10px;
 }
+
+/* ══════════════════════════
+   DAILY LOG ROWS
+   ══════════════════════════ */
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 7px;
+}
+.log-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 46px;
+}
+.log-data {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.log-money { color: var(--accent); font-weight: 600; }
+.log-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════
+   METRIC COLORS
+   ══════════════════════════ */
+.metric-value.green { color: var(--green); }
 
 /* ══════════════════════════
    DANGER ZONE
